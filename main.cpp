@@ -36,18 +36,18 @@ Vector2 toUnitVector(Vector2 vector) {
 }
 
 // Calculates a partially inelastic collision between two balls
-Vector4 calcBallCollision(Ball& ball1, Ball& ball2, float e) { // Returns x,y,z,w (x,y is velocity 1 and z,w is velocity 2)
+Vector4 calcBallsCollision(Ball& ball1, Ball& ball2, float e) { // Returns x,y,z,w (x,y is velocity 1 and z,w is velocity 2)
     Vector4 finalVelocities = { 0, 0, 0, 0 };
 
-    finalVelocities.x = (ball1.mass * ball1.velocity.x + ball2.mass * ball2.velocity.x - ball2.mass * e * (ball1.velocity.x - ball2.velocity.x))
-                        / (ball1.mass + ball2.mass);
-    finalVelocities.y = (ball1.mass * ball1.velocity.y + ball2.mass * ball2.velocity.y - ball2.mass * e * (ball1.velocity.y - ball2.velocity.y))
-                        / (ball1.mass + ball2.mass);
-                        
-    finalVelocities.z = (ball1.mass * ball1.velocity.x + ball2.mass * ball2.velocity.x + ball1.mass * e * (ball1.velocity.x - ball2.velocity.x))
-                        / (ball1.mass + ball2.mass);
-    finalVelocities.w = (ball1.mass * ball1.velocity.y + ball2.mass * ball2.velocity.y + ball1.mass * e * (ball1.velocity.y - ball2.velocity.y))
-                        / (ball1.mass + ball2.mass);
+    // Calculates the normals
+    Vector2 n1 = Vector2Subtract(ball2.position, ball1.position);
+    Vector2 n2 = Vector2Subtract(ball2.position, ball1.position);
+
+    // Calculates ball momentums
+    Vector2 p1 = Vector2Scale(ball1.velocity, ball1.mass);
+    Vector2 p2 = Vector2Scale(ball2.velocity, ball2.mass);
+    // Calculates magnitude of collision impulse
+    float j = -(1 + e);
 
     return finalVelocities;
 }
@@ -61,6 +61,7 @@ int main() {
     constexpr float restitutionCoeff = .5f; // How much energy is conserved in collision
     constexpr Vector2 gravSliderPos = { 25, 10 };
     Rectangle gravSliderRec = { gravSliderPos.x, gravSliderPos.y, gravSliderWidth, gravSliderHeight };
+    Ball* grabbedBall = nullptr;
 
     float gravity = 0.1;
 
@@ -81,56 +82,90 @@ int main() {
         GuiSlider(gravSliderRec, "0%", "100%", &(gravity), -0.5f, 0.5f); // Slider to control gravity
 
         // Places ball if mouse not on gravity slider
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(GetMousePosition(), gravSliderRec))
-        {
-            balls.emplace_back();
-        }
+        if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if(CheckCollisionPointRec(GetMousePosition(), gravSliderRec)) break;
 
-        for(Ball& ball : balls) { // loop through each particle
-            
-            // Checks for ball collisions (TODO: OPTIMIZE)
-            for(Ball& checkBall : balls) {
-                if(&checkBall == &ball) continue; // skips same ball
-
-                Vector2 ballNextPos = Vector2Add(ball.position, ball.velocity);
-                Vector2 checkBallNextPos = Vector2Add(checkBall.position, checkBall.velocity);             
-
-                if(CheckCollisionCircles(ballNextPos, ball.radius, checkBallNextPos, checkBall.radius)) { // In case of collision
-                    
-                    // Checks and makes sure no balls overlap
-                    Vector2 deltaVec = Vector2Subtract(checkBall.position, ball.position);
-                    float distance = Vector2Length(deltaVec);
-                    float overlap = checkBall.radius + ball.radius - distance;
-                    if(overlap > 0) { // fix overlap
-                        ball.position = Vector2Add(ball.position, Vector2Scale(toUnitVector(deltaVec), overlap));
-                    }
-
-                    Vector4 resultVec = calcBallCollision(ball, checkBall, restitutionCoeff);
-                    
-                    ball.velocity.x = resultVec.x;
-                    ball.velocity.y = resultVec.y;
-                    checkBall.velocity.x = resultVec.z;
-                    checkBall.velocity.y = resultVec.w;    
+            for(Ball& ball : balls) {
+                if(CheckCollisionPointCircle(GetMousePosition(), ball.position, ball.radius)) {
+                    grabbedBall = &ball;
+                    break;
                 }
             }
 
-            // Updates position from velocity
-            ball.position.x += ball.velocity.x;
-            ball.position.y += ball.velocity.y;
+            if(grabbedBall == nullptr) { balls.emplace_back(); }
+        }
+        
+
+        if(IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && grabbedBall != nullptr) {
+            grabbedBall->velocity = GetMouseDelta();
+            grabbedBall = nullptr;            
+        }
+
+        for(int i = 0; i < balls.size(); i++) { // loop through each ball
             
-            // Updates velocity from gravity
-            ball.velocity.y += gravity;
-            
-            if(ball.position.y + ball.radius >= screenHeight) { // ball out of bounds below
-                ball.velocity.y *= -restitutionCoeff;
-                ball.position.y = screenHeight - ball.radius;
-            } else if(ball.position.y - ball.radius <= 0) { // ball out of bounds above
-                ball.velocity.y *= -restitutionCoeff;
-                ball.position.y = ball.radius;
+            // Checks for ball collisions (TODO: OPTIMIZE)
+            for(int j = i + 1; j < balls.size(); j++) {
+                if(j >= balls.size()) break; // check out of bounds
+
+                Vector2 ballNextPos = Vector2Add(balls[i].position, balls[i].velocity);
+                Vector2 checkBallNextPos = Vector2Add(balls[j].position, balls[j].velocity);             
+
+                if(CheckCollisionCircles(ballNextPos, balls[i].radius, checkBallNextPos, balls[j].radius)) { // In case of collision
+                    
+                    // Checks and makes sure no balls overlap
+                    Vector2 deltaVec = Vector2Subtract(balls[j].position, balls[i].position);
+                    float distance = Vector2Length(deltaVec);
+                    float overlap = balls[j].radius + balls[i].radius - distance;
+                    if(overlap > 0) { // fix overlap
+                        balls[i].position = Vector2Add(balls[i].position, Vector2Scale(toUnitVector(deltaVec), overlap));
+                    }
+
+                    Vector4 resultVec = calcBallsCollision(balls[i], balls[j], restitutionCoeff);
+                    
+                    balls[i].velocity.x = resultVec.x;
+                    balls[i].velocity.y = resultVec.y;
+                    balls[j].velocity.x = resultVec.z;
+                    balls[j].velocity.y = resultVec.w;    
+                }
+            }
+
+            if(&balls[i] == grabbedBall) { // Updates grabbed ball
+                balls[i].position = GetMousePosition();
+                
+                if(balls[i].position.y + balls[i].radius >= screenHeight) { // ball out of bounds below
+                    balls[i].position.y = screenHeight - balls[i].radius;
+                } else if(balls[i].position.y - balls[i].radius <= 0) { // ball out of bounds above
+                    balls[i].position.y = balls[i].radius;
+                } else if(balls[i].position.x + balls[i].radius >= screenWidth) { // ball out of bounds right
+                    balls[i].position.x = screenWidth - balls[i].radius;
+                } else if(balls[i].position.x - balls[i].radius <= 0) { // ball out of bounds left
+                    balls[i].position.x = balls[i].radius;
+                }
+
+            } else { // Updates everything else
+                // Updates position from velocity
+                balls[i].position = Vector2Add(balls[i].position, balls[i].velocity);
+                
+                // Updates velocity from gravity
+                balls[i].velocity.y += gravity;
+                
+                if(balls[i].position.y + balls[i].radius >= screenHeight) { // ball out of bounds below
+                    balls[i].velocity.y *= -restitutionCoeff;
+                    balls[i].position.y = screenHeight - balls[i].radius;
+                } else if(balls[i].position.y - balls[i].radius <= 0) { // ball out of bounds above
+                    balls[i].velocity.y *= -restitutionCoeff;
+                    balls[i].position.y = balls[i].radius;
+                } else if(balls[i].position.x + balls[i].radius >= screenWidth) { // ball out of bounds right
+                    balls[i].velocity.x *= -restitutionCoeff;
+                    balls[i].position.x = screenWidth - balls[i].radius;
+                } else if(balls[i].position.x - balls[i].radius <= 0) { // ball out of bounds left
+                    balls[i].velocity.x *= -restitutionCoeff;
+                    balls[i].position.x = balls[i].radius;
+                }
             }
     
             // Draws each ball
-            DrawCircleV(ball.position, ball.radius, ball.color);
+            DrawCircleV(balls[i].position, balls[i].radius, balls[i].color);
         }
 
         EndDrawing();
