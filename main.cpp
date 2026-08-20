@@ -37,19 +37,24 @@ Vector2 toUnitVector(Vector2 vector) {
 
 // Calculates a partially inelastic collision between two balls
 Vector4 calcBallsCollision(Ball& ball1, Ball& ball2, float e) { // Returns x,y,z,w (x,y is velocity 1 and z,w is velocity 2)
-    Vector4 finalVelocities = { 0, 0, 0, 0 };
 
-    // Calculates the normals
-    Vector2 n1 = Vector2Subtract(ball2.position, ball1.position);
-    Vector2 n2 = Vector2Subtract(ball2.position, ball1.position);
+    // Calculates the normal
+    Vector2 n = Vector2Subtract(ball2.position, ball1.position);
+    Vector2 nUnit = toUnitVector(n);
 
-    // Calculates ball momentums
-    Vector2 p1 = Vector2Scale(ball1.velocity, ball1.mass);
-    Vector2 p2 = Vector2Scale(ball2.velocity, ball2.mass);
-    // Calculates magnitude of collision impulse
-    float j = -(1 + e);
+    // Calculates velocities along normal
+    float v1n = Vector2DotProduct(ball1.velocity, nUnit);
+    float v2n = Vector2DotProduct(ball2.velocity, nUnit);
 
-    return finalVelocities;
+    // Calculates new normal velocities (scalar, no direction)
+    float v1nNew  = (v1n * (ball1.mass - ball2.mass) + 2 * ball2.mass * v2n) / (ball1.mass + ball2.mass);
+    float v2nNew  = (v2n * (ball2.mass - ball1.mass) + 2 * ball1.mass * v1n) / (ball1.mass + ball2.mass);
+    
+    // Calculates final velocities with directions
+    Vector2 v1New = Vector2Add(ball1.velocity, Vector2Scale(nUnit, v1nNew - v1n));
+    Vector2 v2New = Vector2Add(ball1.velocity, Vector2Scale(nUnit, v2nNew - v2n));
+    
+    return Vector4{ v1New.x, v1New.y, v2New.x, v2New.y };
 }
 
 int main() {
@@ -58,16 +63,16 @@ int main() {
     constexpr int screenHeight = 450;
     constexpr int gravSliderWidth = 200;
     constexpr int gravSliderHeight = 20;
-    constexpr float restitutionCoeff = .5f; // How much energy is conserved in collision
-    constexpr Vector2 gravSliderPos = { 25, 10 };
+    constexpr float restitutionCoeff = 0.8f; // How much energy is conserved in collision
+    constexpr Vector2 gravSliderPos = { 35, 10 };
     Rectangle gravSliderRec = { gravSliderPos.x, gravSliderPos.y, gravSliderWidth, gravSliderHeight };
-    Ball* grabbedBall = nullptr;
+    int grabbedBallIndex = -1;
 
-    float gravity = 0.1;
+    float gravity = 0.6;
 
     std::vector<Ball> balls {};
 
-    InitWindow(screenWidth, screenHeight, "Particle Simulation");
+    InitWindow(screenWidth, screenHeight, "Ball Simulation");
 
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
@@ -78,27 +83,36 @@ int main() {
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        // CONTROLS
-        GuiSlider(gravSliderRec, "0%", "100%", &(gravity), -0.5f, 0.5f); // Slider to control gravity
+        // Creates a slider for gravity
+        GuiSlider(gravSliderRec, "-100%", "100%", &(gravity), -0.8f, 0.8f); // Slider to control gravity
 
         // Places ball if mouse not on gravity slider
         if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            if(CheckCollisionPointRec(GetMousePosition(), gravSliderRec)) break;
+            if(!CheckCollisionPointRec(GetMousePosition(), gravSliderRec)) {
 
-            for(Ball& ball : balls) {
-                if(CheckCollisionPointCircle(GetMousePosition(), ball.position, ball.radius)) {
-                    grabbedBall = &ball;
-                    break;
+                for(int i = 0; i < balls.size(); i++) {
+                    if(CheckCollisionPointCircle(GetMousePosition(), balls[i].position, balls[i].radius)) {
+                        grabbedBallIndex = i;
+                        break;
+                    }
+                }
+
+                // If clicked on an empty area, place ball
+                if(grabbedBallIndex == -1) {
+                    balls.emplace_back();
+                    grabbedBallIndex = balls.size() - 1;
                 }
             }
-
-            if(grabbedBall == nullptr) { balls.emplace_back(); }
         }
         
+        // Lets ball go on mouse release
+        if(IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && grabbedBallIndex != -1) {
+            balls[grabbedBallIndex].velocity = GetMouseDelta();
+            grabbedBallIndex = -1;            
+        }
 
-        if(IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && grabbedBall != nullptr) {
-            grabbedBall->velocity = GetMouseDelta();
-            grabbedBall = nullptr;            
+        if(IsKeyPressed('R')) {
+            balls.clear();
         }
 
         for(int i = 0; i < balls.size(); i++) { // loop through each ball
@@ -117,7 +131,7 @@ int main() {
                     float distance = Vector2Length(deltaVec);
                     float overlap = balls[j].radius + balls[i].radius - distance;
                     if(overlap > 0) { // fix overlap
-                        balls[i].position = Vector2Add(balls[i].position, Vector2Scale(toUnitVector(deltaVec), overlap));
+                        balls[i].position = Vector2Subtract(balls[i].position, Vector2Scale(toUnitVector(deltaVec), overlap));
                     }
 
                     Vector4 resultVec = calcBallsCollision(balls[i], balls[j], restitutionCoeff);
@@ -129,7 +143,7 @@ int main() {
                 }
             }
 
-            if(&balls[i] == grabbedBall) { // Updates grabbed ball
+            if(i == grabbedBallIndex) { // Updates grabbed ball
                 balls[i].position = GetMousePosition();
                 
                 if(balls[i].position.y + balls[i].radius >= screenHeight) { // ball out of bounds below
