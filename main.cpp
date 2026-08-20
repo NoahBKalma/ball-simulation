@@ -47,13 +47,12 @@ Vector4 calcBallsCollision(Ball& ball1, Ball& ball2, float e) { // Returns x,y,z
     float v2n = Vector2DotProduct(ball2.velocity, nUnit);
 
     // Calculates new normal velocities (scalar, no direction)
-    float v1nNew  = (v1n * (ball1.mass - ball2.mass) + 2 * ball2.mass * v2n) / (ball1.mass + ball2.mass);
-    float v2nNew  = (v2n * (ball2.mass - ball1.mass) + 2 * ball1.mass * v1n) / (ball1.mass + ball2.mass);
-    
+    float v1nNew  = v1n - (1 + e) * (ball2.mass / (ball1.mass + ball2.mass)) * (v1n - v2n);
+    float v2nNew  = v2n + (1 + e) * (ball1.mass / (ball1.mass + ball2.mass)) * (v1n - v2n);
+
     // Calculates final velocities with directions
     Vector2 v1New = Vector2Add(ball1.velocity, Vector2Scale(nUnit, v1nNew - v1n));
-    Vector2 v2New = Vector2Add(ball1.velocity, Vector2Scale(nUnit, v2nNew - v2n));
-    
+    Vector2 v2New = Vector2Add(ball2.velocity, Vector2Scale(nUnit, v2nNew - v2n));    
     return Vector4{ v1New.x, v1New.y, v2New.x, v2New.y };
 }
 
